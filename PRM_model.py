@@ -1,0 +1,90 @@
+""" Define PRM Model """
+import torch.nn as nn
+from transformers import AutoModelForCausalLM, AutoTokenizer
+import torch
+import torch.nn.functional as F
+
+from typing import Callable, Iterator, Any, Dict, List
+
+class PRM(nn.Module):
+    """ Class for the PRM. It uses a small pre-trained LM, e.g. QWEN2.5 with 1.5B parameters and a classification head
+
+    The model weights can be frozen such that either only the classification head can be trained independently  
+    or the whole model using PEFT methods such as LORA. """
+
+    def __init__(
+        self,
+        model_id: str,
+        head_dim: int=1,
+        freeze_model: bool=True,
+        lora_k: int=16,
+        lora_alpha: int=32,
+        lora_dropout: float=0.1
+    ) -> None:
+
+        super().__init__()
+
+        self.model = AutoModelForCausalLM.from_pretrained(
+            model_id,
+            dtype="bfloat16",  # Use string to avoid deprecation warning
+            device_map="auto",
+        )
+
+        # Turn of KV caching for training
+        self.model.config.use_cache = False
+
+        # optionally freeze model parameters
+        if freeze_model:
+            for param in self.model.parameters():
+                param.requires_grad = False
+        
+        # Build head with same dtype as model
+        self.head = nn.Linear(self.model.config.hidden_size, head_dim, bias=False)
+        self.head = self.head.to(torch.bfloat16)
+    
+    def forward(
+        self,
+        input_ids: torch.Tensor,
+        attention_mask: torch.Tensor,
+        labels: torch.Tensor | None = None
+    ) -> tuple[torch.Tensor | None, torch.Tensor]:
+        """ perform a forward pass through the network and return the output logits, as well as the cross-entropy loss (or None) 
+        
+        Args:
+            input_ids:          input tokens [batch_size, seq_len]
+            attention_mask:     attention mask [batch_size, seq_len]
+            labels:             labels for prediction, 0 and 1 for steps and -100 for masked tokens
+        
+        Returns:
+            loss:               cross-entropy loss on step tokens or None if no labels are given
+            logits:             per token class logits [batch_size, seq_len, 1]        
+        """
+        outputs = self.model(
+            input_ids=input_ids,
+            attention_mask=attention_mask,
+            output_hidden_states=True,
+            use_cache=False,
+            return_dict=True,
+        )
+
+        hidden = outputs.hidden_states[-1]
+
+        logits = self.head(hidden)
+
+        loss = None
+        if labels is not None:
+            mask = labels != -100
+            if mask.any():
+                loss = F.cross_entropy(logits[mask], labels[mask])
+            else:
+                loss = logits.sum() * 0
+
+        return loss, logits
+
+    
+    @property
+    def device(self) -> torch.device:
+        return next(self.parameters()).device
+    
+    def count_trainable_params(self) -> int:
+        return sum(p.numel() for p in self.parameters() if p.requires_grad)
