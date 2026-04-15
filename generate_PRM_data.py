@@ -108,7 +108,7 @@ if __name__ == "__main__":
     llm = LLM(model=modelCode, enable_prefix_caching=True, enable_chunked_prefill=True, max_num_batched_tokens=2048, dtype="bfloat16")
 
     sampling_params = SamplingParams(
-        temperature=args.sampling_temperature, top_p=args.top_p, max_tokens=args.max_tokens, n=args.rollouts
+        temperature=args.sampling_temperature, top_p=args.top_p, max_tokens=args.max_tokens, n=args.rollouts,  stop=["<|im_end|>"]
     )
 
     print("Generating Steps and Answers")
@@ -129,7 +129,7 @@ if __name__ == "__main__":
 
     # Do a second pass and find MC prediction for each step (using MC_rollouts additional generation steps for each step)
     sampling_params_MC = SamplingParams(
-        temperature=args.sampling_temperature, top_p=args.top_p, max_tokens=1024, n=args.rollouts_MC
+        temperature=args.sampling_temperature, top_p=args.top_p, max_tokens=1024, n=args.rollouts_MC,  stop=["<|im_end|>"]
     )
 
     print("Obtaining MC statistics")
