@@ -5,9 +5,6 @@ from vllm import LLM, SamplingParams
 import os
 from typing import List
 from grading.grader import grade_answer
-from multiprocessing import Process, Queue
-import multiprocessing as mp
-import torch
 
 def split_into_steps(output: str, sep: str="\n\n") -> List[str]:
     return output.split(sep)
@@ -59,59 +56,6 @@ def extract_boxed(answer: str) -> str:
             i += 1
     return box_content
 
-def gpu_worker(gpu_id: int, input_queue: Queue, output_queue: Queue, modelCode: str):
-    """ Worker function to run on each GPU """
-
-    # Initialize the model on the assigned GPU
-    os.environ["CUDA_VISIBLE_DEVICES"] = str(gpu_id)
-    llm = LLM(model=modelCode, enable_prefix_caching=True, dtype="bfloat16")
-    
-    # Attend to input queue and process batches until None is received
-    while True:
-        batch = input_queue.get()
-        if batch is None:  # poison pill
-            break
-        indices, prompts, sampling_params = batch
-        outputs = llm.generate(prompts, sampling_params)
-        # put the results in the output queue along with the corresponding indices to reconstruct the original order later
-        output_queue.put((indices, outputs))
-
-def parallel_generate(prompts, sampling_params, input_queue, output_queue, n_gpus=1):
-    """ Distribute generation across multiple GPUs using worker processes and queues """
-
-    # Split prompts into chunks for each GPU and put them in the input queue
-    chunk_size = (len(prompts) + n_gpus - 1) // n_gpus
-    n_chunks = 0
-    for i in range(0, len(prompts), chunk_size):
-        chunk_prompts = prompts[i:i + chunk_size]
-        chunk_indices = list(range(i, i + len(chunk_prompts)))
-        input_queue.put((chunk_indices, chunk_prompts, sampling_params))
-        n_chunks += 1
-
-    results = [None] * len(prompts)
-    for _ in range(n_chunks):
-        indices, outputs = output_queue.get()
-        for idx, output in zip(indices, outputs):
-            results[idx] = output
-
-    return results
-
-def start_worker_pool(modelCode, n_gpus=1):
-    input_queue, output_queue = Queue(), Queue()
-    workers = [
-        Process(target=gpu_worker, args=(i, input_queue, output_queue, modelCode))
-        for i in range(n_gpus)
-    ]
-    for w in workers:
-        w.start()
-    return workers, input_queue, output_queue
-
-def shutdown_workers(workers, input_queue, n_gpus=1):
-    for _ in range(n_gpus):
-        input_queue.put(None)
-    for w in workers:
-        w.join()
-
 def get_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--train_dataset", type=str, default="data/PRM_Train/data_selection.json")
@@ -130,7 +74,6 @@ def get_args():
 
 if __name__ == "__main__":
     args = get_args()
-    mp.set_start_method("spawn", force=True)
 
     # load prompt
     with open(args.prompt_path, "r") as file:
@@ -162,11 +105,7 @@ if __name__ == "__main__":
     else:
         raise ValueError("At the moment only Qwen2.5-Math-1.5B-Instruct and Qwen2.5-Math-7B-Instruct are supported.")
     # initialize model
-    # llm = LLM(model=modelCode, enable_prefix_caching=True, enable_chunked_prefill=True, max_num_batched_tokens=2048, dtype="bfloat16")
-
-    n_gpus = torch.cuda.device_count()
-    print(f"Using {n_gpus} GPUs for generation")
-    workers, input_queue, output_queue = start_worker_pool(modelCode, n_gpus=n_gpus)
+    llm = LLM(model=modelCode, enable_prefix_caching=True, enable_chunked_prefill=True, max_num_batched_tokens=2048, dtype="bfloat16")
 
     sampling_params = SamplingParams(
         temperature=args.sampling_temperature, top_p=args.top_p, max_tokens=args.max_tokens, n=args.rollouts
@@ -174,8 +113,7 @@ if __name__ == "__main__":
 
     print("Generating Steps and Answers")
 
-    # out = llm.generate(queries, sampling_params)
-    out = parallel_generate(queries, sampling_params, input_queue, output_queue, n_gpus=n_gpus)
+    out = llm.generate(queries, sampling_params)
 
     results = [
         {
@@ -211,9 +149,7 @@ if __name__ == "__main__":
     prompts_mc = [q[2] for q in queries_mc]
 
     print("Running MC prompt generation")
-    # out_mc = llm.generate(prompts_mc, sampling_params_MC)
-    out_mc = parallel_generate(prompts_mc, sampling_params_MC, input_queue, output_queue, n_gpus=n_gpus)
-
+    out_mc = llm.generate(prompts_mc, sampling_params_MC)
 
     # Reconstruct MC labels
     for (prob_idx, step_idx, _), output in zip(queries_mc, out_mc):
@@ -234,9 +170,11 @@ if __name__ == "__main__":
     
     print("Saving results")
     file_path = args.output
+    directory = os.path.dirname(file_path)
+    if directory and not os.path.exists(directory):
+        os.makedirs(directory, exist_ok=True)
+
     with open(file_path, 'w') as json_file:
         json.dump(results, json_file, indent=4)
 
-    print("Shutting down workers")
-    shutdown_workers(workers, input_queue, n_gpus=n_gpus)
-    # llm.llm_engine.engine_core.shutdown()
+    llm.llm_engine.engine_core.shutdown()
