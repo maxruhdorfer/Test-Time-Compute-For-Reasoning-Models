@@ -5,7 +5,7 @@ set -euo pipefail
 # Model checkpoints are disabled; only training statistics are saved.
 
 LEARNING_RATES=(1e-5 5e-5 1e-4)
-GRAD_ACCUM_STEPS=(10 20 40)
+GRAD_ACCUM_STEPS=(8 16 32)
 
 OUTPUT_DIR="logs/sweep"
 mkdir -p "$OUTPUT_DIR"
@@ -20,12 +20,13 @@ for LR in "${LEARNING_RATES[@]}"; do
         echo "  lr=${LR}  grad_accum=${GRAD_ACCUM}"
         echo "========================================="
 
-        python train_PRM.py \
+        uv run train_PRM.py \
             --lr "$LR" \
             --gradient_accumulation_steps "$GRAD_ACCUM" \
             --run_name "$RUN_NAME" \
             --output "$OUTPUT_PATH" \
             --no_checkpoint \
+            --use_wandb \
             --epochs 1
 
         echo "Saved statistics → ${OUTPUT_PATH}"

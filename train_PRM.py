@@ -14,18 +14,18 @@ STEP_SEPARATOR = '\n<step>\n'
 def get_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--model_id", type=str, default="Qwen/Qwen2.5-Math-1.5B-Instruct")    
-    parser.add_argument("--train_data_path", type=str, default="data/PRM_Train/1.5B/PRM_1p5B_data_chat.jsonl") 
-    parser.add_argument("--output", type=str, default="logs/1.5p_train.log") 
-    parser.add_argument("--run_name", type=str, default="PRM_1.5B_Train") 
+    parser.add_argument("--train_data_path", type=str, default="data/PRM_Train/7B/PRM_7B_data.jsonl") 
+    parser.add_argument("--output", type=str, default="logs/1.5B_model_7B_train.log") 
+    parser.add_argument("--run_name", type=str, default="PRM_1p5B_7B_Train") 
     parser.add_argument("--max_tokens", type=int, default=2048)  
     parser.add_argument("--val_fraction", type=float, default=0.1)    
     parser.add_argument("--batch_size", type=int, default=1) 
     parser.add_argument("--val_interval", type=int, default=500)
-    parser.add_argument("--val_steps", type=int, default=40)     
+    # parser.add_argument("--val_steps", type=int, default=40)     
     parser.add_argument("--epochs", type=int, default=3)    
-    parser.add_argument("--lr", type=float, default=5e-5)    
+    parser.add_argument("--lr", type=float, default=2e-5)    
     parser.add_argument("--warmup_ratio", type=float, default=0.1)    
-    parser.add_argument("--gradient_accumulation_steps", type=int, default=20)
+    parser.add_argument("--gradient_accumulation_steps", type=int, default=16)
     parser.add_argument("--seed", type=int, default=41)
     parser.add_argument("--checkpoint_dir", type=str, default="checkpoints")
     parser.add_argument("--no_checkpoint", action='store_true')
@@ -164,7 +164,6 @@ def train_prm(
     warmup_ratio: float,
     seed: int,
     val_interval: int,
-    val_steps: int,
     checkpoint_dir: str = "checkpoints",
     no_checkpoint: bool = False,
     use_wandb: bool = True,
@@ -205,7 +204,7 @@ def train_prm(
 
     # Optimizer and LR scheduler with linear warmup
     optimizer = create_optimizer(model, lr)
-    total_optimizer_steps = -(-len(train_DL) // grad_accum_steps) * epochs
+    total_optimizer_steps = (len(train_DL) // grad_accum_steps) * epochs
     warmup_steps = int(total_optimizer_steps * warmup_ratio)
     scheduler = (
         torch.optim.lr_scheduler.LinearLR(optimizer, start_factor=0.1, total_iters=warmup_steps)
@@ -288,9 +287,6 @@ def train_prm(
                 model.eval()
                 val_batches = 0
                 for val_step, batch in enumerate(val_DL):
-                    if val_step >= val_steps:
-                        break
-
                     batch = {k: v.to(device) for k, v in batch.items()}
 
                     with torch.no_grad():
@@ -414,7 +410,6 @@ def main():
         warmup_ratio=args.warmup_ratio,
         seed=args.seed,
         val_interval=args.val_interval,
-        val_steps=args.val_steps,
         checkpoint_dir=args.checkpoint_dir,
         no_checkpoint=args.no_checkpoint,
         use_wandb=args.use_wandb,
