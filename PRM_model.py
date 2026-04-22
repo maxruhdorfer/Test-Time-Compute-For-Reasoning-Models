@@ -19,9 +19,6 @@ class PRM(nn.Module):
         head_dim: int=1,
         freeze_model: bool=True,
         device: torch.device | str = "cpu",
-        lora_k: int=16,
-        lora_alpha: int=32,
-        lora_dropout: float=0.1
     ) -> None:
 
         super().__init__()
