@@ -136,6 +136,8 @@ Interestingly, beam search performs poorly in both cases. The reason for that mi
 
 Best-of-N, both the vanilla and the weighted version, generally yield the best performance. This shows that the PRM is particularly good at predicting the correctness of the last step, the result of the reasoning process.
 
+The best accuracy across all experiments is **85.8%**, achieved by Weighted Best-of-N with the PRM trained on 7B-generated data at N=16 rollouts (7B generator). This corresponds to a **+10.6 percentage point** improvement over the zero-shot (N=1) baseline of **75.2%** for the same model.
+
 ### PRM Data Source: 1.5B- vs. 7B-Generated Training Data
 
 Let us now study the dependence on the source of the PRM training data and let us take $N=4$ as an example.
