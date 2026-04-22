@@ -172,7 +172,7 @@ Results at $N = 4$ rollouts on the MATH test set:
 
 Now we are in a position to answer the three questions that we started out with:
 
-**i) hich inference method provides the best accuracy at a given test-time compute budget?**
+**i) Which inference method provides the best accuracy at a given test-time compute budget?**
 
 We found that the weighted best-of-N method generally performs the best, especially for relatively small test-time compute. Once the test-time compute is enhanced, majority vote catches up due to the sheer diversity of reasoning traces. Thus, at lower test-time compute a PRM (or ORM) is beneficial to increase the model accuracy. Note, however, that we already started with a highly specialized Math and instruction fine-tuned model. The gain would likely be bigger for a base model.
 
